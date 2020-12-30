@@ -1,4 +1,5 @@
-use pulldown_cmark::{Options, BrokenLink, CowStr, LinkType, Parser, html};
+use pulldown_cmark::{Options, BrokenLink, CowStr, LinkType, Parser, html, Event};
+use regex::Regex;
 use std::path::{Path, PathBuf};
 use crate::{Note, Notebook};
 
@@ -43,6 +44,18 @@ impl NoteCompiler {
             &contents,
             self.parse_options,
             Some(func));
+
+        let parser = parser.map(|event| match event {
+            Event::Text(text) => {
+                let re = Regex::new(r"(.*+): (.*) #flashcard (#[\w\d-]+)*").unwrap();
+                for cap in re.captures_iter(&text) {
+                    println!("Flashcard: {:?}", cap);
+                }
+
+                Event::Text(text)
+            },
+            pass => pass,
+        });
 
         let mut output = String::new();
         html::push_html(&mut output, parser);
