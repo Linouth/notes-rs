@@ -1,11 +1,38 @@
-use notes::Notebook;
-use std::path::Path;
+use notes::{self, Notebook, Note};
+// use notes::compiler::NoteCompiler;
+use std::path::{Path, PathBuf};
+use std::env;
+use std::process;
+use std::fs;
 
 fn main() {
-    let mut notebook = Notebook::new("");
-    notebook.add_ignore(Path::new("target/"));
+    let config_file: PathBuf = env::args().skip(1).collect();
+    let config = fs::read_to_string(&config_file).unwrap_or_else(|err| {
+        println!("Error opening config file: {:?}", err);
+        process::exit(1);
+    });
 
-    // notebook.add("Another test.md").unwrap();
+    // TODO: This should be able to be done without converting to a Vec
+    let config: Vec<String> = config.lines().map(|x| x.to_string()).collect();
+    let config = notes::split_yaml_pairs(&config);
+
+    println!("{:?}", config);
+
+    let err_msg = |field| {
+        println!("Config field missing: {}", field);
+        process::exit(1);
+    };
+    let title = config.get("title").unwrap_or_else(|| err_msg("title"));
+    let basedir = config.get("path").unwrap_or_else(|| err_msg("path"));
+    let outdir = config.get("outdir").unwrap_or_else(|| err_msg("outdir"));
+
+    let mut notebook = Notebook::new(&title, &basedir);
+    notebook.add_ignore(Path::new("target/"));
+    notebook.add_ignore(Path::new("assets"));
+    notebook.add_ignore(Path::new("attachments"));
+    notebook.add_ignore(Path::new("__layouts"));
+    notebook.add_ignore(Path::new("html"));
+    notebook.add_ignore(Path::new(".git"));
 
     notebook.scan_and_add();
 

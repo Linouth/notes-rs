@@ -5,6 +5,7 @@ use std::io::{self, Read, Write, Error, ErrorKind};
 use std::fs;
 use std::cell::RefCell;
 
+mod parsers;
 mod compiler;
 use compiler::{NoteCompiler, Asset};
 
@@ -16,6 +17,7 @@ struct NotebookConfig {
 
 pub struct Notebook {
     config: NotebookConfig,
+    title: String,
 
     compiler: NoteCompiler,
 
@@ -24,13 +26,15 @@ pub struct Notebook {
 }
 
 impl Notebook {
-    pub fn new(basedir: &str) -> Self {
+    pub fn new(title: &str, basedir: &str) -> Self {
         Self {
+            title: String::from(title),
             config: NotebookConfig {
                 // Set to ./ if basedir is empty
                 // TODO: Remove this hack
-                basedir: PathBuf::from(String::from( *[basedir, "./"].iter()
-                                 .filter(|x| !x.is_empty()).take(1).next().unwrap())),
+                // basedir: PathBuf::from(String::from( *[basedir, "./"].iter()
+                //                  .filter(|x| !x.is_empty()).take(1).next().unwrap())),
+                basedir: PathBuf::from(basedir),
 
                 outdir: PathBuf::from(String::from("html")),
                 ignore: vec![],
@@ -72,6 +76,9 @@ r#"<!DOCTYPE html>
 </html>"#
                 ),
                 assets: vec![Asset::Css(PathBuf::from("test.css"))],
+                parsers: vec![
+                    // Box::new(parsers::FlashcardParser::new()),
+                ],
             },
             notes: HashMap::new(),
         }
@@ -114,7 +121,7 @@ r#"<!DOCTYPE html>
     fn add(&mut self, filename: &Path) -> io::Result<&Note> {
         let mut path = PathBuf::from(&self.config.basedir);
         path.push(filename);
-        self.add(&path)
+        self.add_abs(&path)
     }
 
     /// Scans the `config.basedir` recursively and adds all markdown files found
@@ -193,7 +200,7 @@ r#"<!DOCTYPE html>
 }
 
 pub struct Note {
-    /// full path to the note file, including basedir
+    /// full path to the note file
     pub path: PathBuf,
     
     // /// Last modified timestamp
@@ -201,6 +208,7 @@ pub struct Note {
     // contents: String,
 
     metadata: RefCell<HashMap<String, String>>,
+    title: String,
 }
 
 impl Note {
@@ -213,51 +221,35 @@ impl Note {
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
 
+        let mut metadata = split_yaml_pairs(&strip_yaml(&mut contents));
+
+        let title = metadata.remove("title").unwrap_or_else(|| {
+            contents.lines().next().unwrap().strip_prefix("# ")
+                .unwrap_or(path.file_stem().unwrap().to_str().unwrap())
+                .to_string()
+        });
+
         let note = Self {
             path: PathBuf::from(path),
-            // modified: modified,
-            metadata: RefCell::new({
-                split_yaml_pairs(
-                    strip_yaml(&mut contents)
-                )
-            }),
-            // contents,
+            metadata: RefCell::new(metadata),
+            title: title,
         };
 
         Ok(note)
     }
 
     pub fn read(&self) -> String {
-        // TODO: Fix this, and figure out how I'm going to add the basedir to
-        // the relative path
-        // Also, right now the metadata is not being read parsed at all when
-        // reading
-        /*
-        let modified = fs::metadata(&self.rel_path).unwrap().modified().unwrap();
-        if modified > self.modified {
-            // Update contents of this note
-            self.contents = fs::read_to_string(&self.rel_path).unwrap();
-
-            // Update (and strip) metadata
-            self.metadata = helpers::split_yaml_pairs(
-                helpers::strip_yaml(&mut self.contents)
-            );
-
-            // Update modified timestamp
-            self.modified = modified;
-        }
-        */
         let mut contents = fs::read_to_string(&self.path).unwrap();
 
         let metadata = split_yaml_pairs(
-            strip_yaml(&mut contents));
+            &strip_yaml(&mut contents));
         self.metadata.replace(metadata);
 
         contents
     }
 }
 
-pub fn strip_yaml(input: &mut String) -> Vec<String> {
+fn strip_yaml(input: &mut String) -> Vec<String> {
     // Separate YAML header from markdown content
     let mut lines = input.lines().peekable();
     let output = match lines.peek() {
@@ -281,7 +273,7 @@ pub fn strip_yaml(input: &mut String) -> Vec<String> {
     output
 }
 
-pub fn split_yaml_pairs(input: Vec<String>) -> HashMap<String, String> {
+pub fn split_yaml_pairs(input: &[String]) -> HashMap<String, String> {
     // TODO: Implement some YAML crate to actually parse yaml
 
     // Loop over each key value pair
@@ -293,7 +285,7 @@ pub fn split_yaml_pairs(input: Vec<String>) -> HashMap<String, String> {
         match &a[..] {
             &[k, v, ..] =>
                 output.insert(String::from(k), String::from(v)),
-            _ => unreachable!(),
+            _ => continue,
         };
     }
 

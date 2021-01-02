@@ -1,7 +1,9 @@
-use pulldown_cmark::{Options, BrokenLink, CowStr, LinkType, Parser, html, Event};
-use regex::Regex;
+use pulldown_cmark::{Options, BrokenLink, CowStr, LinkType, html, Event};
+use pulldown_cmark::Parser as CmarkParser;
 use std::path::{Path, PathBuf};
 use crate::{Note, Notebook};
+
+use crate::parsers::Parser;
 
 pub enum Asset {
     Js(PathBuf),
@@ -12,13 +14,19 @@ pub struct NoteCompiler {
     pub parse_options: Options,
     pub template: String,
     pub assets: Vec<Asset>,
+    pub parsers: Vec<Box<dyn Parser>>,
 }
 
 // TODO: Add html fluff around the note, including some css
 // TODO: Add flashcard support
 impl NoteCompiler {
     pub fn to_html(&self, note: &Note, notebook: &Notebook) -> String {
-        let contents = note.read();
+        let mut contents = note.read();
+
+        // Run all parsers on this note
+        for parser in &self.parsers {
+            contents = parser.parse(&contents);
+        }
 
         // Checks link reference, and creates link if the corresponding note
         // exists.
@@ -29,9 +37,10 @@ impl NoteCompiler {
                         let path = &note.path.strip_prefix(
                             &notebook.config.basedir
                         ).unwrap().with_extension("html");
+
                         Some((
                             CowStr::from(String::from(path.to_str().unwrap())),
-                            CowStr::from(""),
+                            CowStr::from("wikilink"),
                         ))
                     })
                 },
@@ -40,22 +49,10 @@ impl NoteCompiler {
         };
 
         // Parse markdown
-        let parser = Parser::new_with_broken_link_callback(
+        let parser = CmarkParser::new_with_broken_link_callback(
             &contents,
             self.parse_options,
             Some(func));
-
-        let parser = parser.map(|event| match event {
-            Event::Text(text) => {
-                let re = Regex::new(r"(.*+): (.*) #flashcard (#[\w\d-]+)*").unwrap();
-                for cap in re.captures_iter(&text) {
-                    println!("Flashcard: {:?}", cap);
-                }
-
-                Event::Text(text)
-            },
-            pass => pass,
-        });
 
         let mut output = String::new();
         html::push_html(&mut output, parser);
@@ -67,6 +64,8 @@ impl NoteCompiler {
         let html = self.to_html(note, notebook);
 
         self.template
+            .replace("{title}", &note.title)
+            .replace("{notebook.title}", &notebook.title)
             .replace("{assets}", &self.assets(&notebook.config.basedir))
             .replace("{content}", &html)
     }
@@ -82,8 +81,10 @@ impl NoteCompiler {
             };
 
             let basedir = basedir.canonicalize().unwrap();
+            let path = basedir.join(path);
 
             // Check if file exists
+            // TODO: Add support for assets in folders (look for first folder)
             if let Ok(path) = path.canonicalize() {
                 // Find file in parent directories
                 let mut prefix = PathBuf::new();
