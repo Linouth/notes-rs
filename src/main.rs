@@ -5,10 +5,15 @@ use std::env;
 use std::process;
 use std::fs;
 
+const DEFAULT_CONFIG: &str = "~/.config/notes.yaml";
+
 fn main() {
-    let config_file: PathBuf = env::args().skip(1).collect();
-    let config = fs::read_to_string(&config_file).unwrap_or_else(|err| {
-        println!("Error opening config file: {:?}", err);
+    let config_file = env::args().skip(1).next()
+        .unwrap_or(DEFAULT_CONFIG.to_string());
+    let config_file = shellexpand::full(&config_file).unwrap();
+    println!("{}", config_file);
+    let config = fs::read_to_string(&*config_file).unwrap_or_else(|err| {
+        println!("Error opening config file {:?}: {:?}", config_file, err);
         process::exit(1);
     });
 

@@ -11,5 +11,4 @@
 - [ ] Make a decent cli
 - [ ] Have KaTeX stuff locally
 - [ ] Add support for absolute outdir path
-
 - [ ] Fix relative paths in html output, and css include
